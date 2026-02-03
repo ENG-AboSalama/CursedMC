@@ -1,0 +1,902 @@
+<!DOCTYPE html>
+<html lang="en">
+
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>CursedMC - Setup</title>
+    <style>
+        * {
+            margin: 0;
+            padding: 0;
+            box-sizing: border-box;
+        }
+
+        body {
+            font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, Oxygen, Ubuntu, sans-serif;
+            background: linear-gradient(135deg, #1a1a2e 0%, #16213e 100%);
+            min-height: 100vh;
+            color: #e4e4e7;
+            display: flex;
+            align-items: center;
+            justify-content: center;
+            padding: 20px;
+        }
+
+        .setup-container {
+            background: #1e1e2e;
+            border-radius: 24px;
+            padding: 40px;
+            width: 100%;
+            max-width: 600px;
+            border: 1px solid #2e2e3e;
+        }
+
+        .logo {
+            text-align: center;
+            margin-bottom: 32px;
+        }
+
+        .logo h1 {
+            font-size: 2.5rem;
+            color: #a78bfa;
+            margin-bottom: 8px;
+        }
+
+        .logo p {
+            color: #71717a;
+            font-size: 1rem;
+        }
+
+        .step-indicator {
+            display: flex;
+            justify-content: center;
+            gap: 12px;
+            margin-bottom: 32px;
+        }
+
+        .step-dot {
+            width: 12px;
+            height: 12px;
+            border-radius: 50%;
+            background: #3f3f46;
+            transition: all 0.3s ease;
+        }
+
+        .step-dot.active {
+            background: #a78bfa;
+            transform: scale(1.2);
+        }
+
+        .step-dot.done {
+            background: #22c55e;
+        }
+
+        .step {
+            display: none;
+        }
+
+        .step.active {
+            display: block;
+            animation: fadeIn 0.3s ease;
+        }
+
+        @keyframes fadeIn {
+            from {
+                opacity: 0;
+                transform: translateY(10px);
+            }
+            to {
+                opacity: 1;
+                transform: translateY(0);
+            }
+        }
+
+        .step h2 {
+            font-size: 1.5rem;
+            margin-bottom: 8px;
+            color: #f4f4f5;
+        }
+
+        .step p {
+            color: #a1a1aa;
+            margin-bottom: 24px;
+            line-height: 1.6;
+        }
+
+        .form-group {
+            margin-bottom: 20px;
+        }
+
+        .form-group label {
+            display: block;
+            margin-bottom: 8px;
+            color: #d4d4d8;
+            font-weight: 500;
+        }
+
+        .form-group label.required::after {
+            content: " *";
+            color: #ef4444;
+        }
+
+        .form-group input,
+        .form-group select {
+            width: 100%;
+            padding: 14px 16px;
+            background: #27272a;
+            border: 2px solid #3f3f46;
+            border-radius: 12px;
+            color: #f4f4f5;
+            font-size: 1rem;
+            transition: border-color 0.2s;
+        }
+
+        .form-group input:focus,
+        .form-group select:focus {
+            outline: none;
+            border-color: #a78bfa;
+        }
+
+        .form-group input.error {
+            border-color: #ef4444;
+        }
+
+        .form-group small {
+            display: block;
+            margin-top: 6px;
+            color: #71717a;
+            font-size: 0.85rem;
+        }
+
+        .form-group .error-text {
+            color: #ef4444;
+            font-size: 0.85rem;
+            margin-top: 6px;
+        }
+
+        .form-row {
+            display: grid;
+            grid-template-columns: 1fr 1fr;
+            gap: 16px;
+        }
+
+        .buttons {
+            display: flex;
+            gap: 12px;
+            margin-top: 32px;
+        }
+
+        .btn {
+            flex: 1;
+            padding: 14px 24px;
+            border: none;
+            border-radius: 12px;
+            font-size: 1rem;
+            font-weight: 600;
+            cursor: pointer;
+            transition: all 0.2s;
+        }
+
+        .btn-primary {
+            background: #7c3aed;
+            color: white;
+        }
+
+        .btn-primary:hover {
+            background: #6d28d9;
+        }
+
+        .btn-primary:disabled {
+            background: #4c1d95;
+            cursor: not-allowed;
+        }
+
+        .btn-secondary {
+            background: #3f3f46;
+            color: #d4d4d8;
+        }
+
+        .btn-secondary:hover {
+            background: #52525b;
+        }
+
+        .status-check {
+            display: flex;
+            align-items: center;
+            gap: 12px;
+            padding: 16px;
+            background: #27272a;
+            border-radius: 12px;
+            margin-bottom: 12px;
+        }
+
+        .status-icon {
+            width: 32px;
+            height: 32px;
+            border-radius: 50%;
+            display: flex;
+            align-items: center;
+            justify-content: center;
+            font-size: 1rem;
+        }
+
+        .status-icon.ok {
+            background: rgba(34, 197, 94, 0.2);
+            color: #22c55e;
+        }
+
+        .status-icon.warn {
+            background: rgba(251, 191, 36, 0.2);
+            color: #fbbf24;
+        }
+
+        .status-icon.error {
+            background: rgba(239, 68, 68, 0.2);
+            color: #ef4444;
+        }
+
+        .status-icon.loading {
+            background: rgba(167, 139, 250, 0.2);
+            color: #a78bfa;
+            animation: pulse 1s infinite;
+        }
+
+        @keyframes pulse {
+            0%, 100% { opacity: 1; }
+            50% { opacity: 0.5; }
+        }
+
+        .status-text h4 {
+            color: #f4f4f5;
+            font-size: 1rem;
+            margin-bottom: 2px;
+        }
+
+        .status-text p {
+            color: #71717a;
+            font-size: 0.85rem;
+            margin: 0;
+        }
+
+        .info-box {
+            background: rgba(167, 139, 250, 0.1);
+            border: 1px solid rgba(167, 139, 250, 0.3);
+            border-radius: 12px;
+            padding: 16px;
+            margin-bottom: 20px;
+        }
+
+        .info-box h4 {
+            color: #a78bfa;
+            margin-bottom: 8px;
+        }
+
+        .info-box p {
+            color: #d4d4d8;
+            font-size: 0.9rem;
+            margin: 0;
+            line-height: 1.5;
+        }
+
+        .warning-box {
+            background: rgba(239, 68, 68, 0.1);
+            border: 1px solid rgba(239, 68, 68, 0.3);
+            border-radius: 12px;
+            padding: 16px;
+            margin-bottom: 20px;
+        }
+
+        .warning-box h4 {
+            color: #ef4444;
+            margin-bottom: 8px;
+        }
+
+        .warning-box p {
+            color: #fca5a5;
+            font-size: 0.9rem;
+            margin: 0;
+        }
+
+        .success-animation {
+            text-align: center;
+            padding: 40px;
+        }
+
+        .success-icon {
+            width: 80px;
+            height: 80px;
+            background: rgba(34, 197, 94, 0.2);
+            border-radius: 50%;
+            display: flex;
+            align-items: center;
+            justify-content: center;
+            margin: 0 auto 24px;
+            font-size: 2.5rem;
+        }
+
+        .success-animation h2 {
+            color: #22c55e;
+            margin-bottom: 12px;
+        }
+
+        .loading-spinner {
+            display: inline-block;
+            width: 20px;
+            height: 20px;
+            border: 2px solid #ffffff40;
+            border-top-color: #fff;
+            border-radius: 50%;
+            animation: spin 0.8s linear infinite;
+            margin-right: 8px;
+        }
+
+        @keyframes spin {
+            to { transform: rotate(360deg); }
+        }
+
+        .password-strength {
+            margin-top: 8px;
+            height: 4px;
+            background: #27272a;
+            border-radius: 2px;
+            overflow: hidden;
+        }
+
+        .password-strength-bar {
+            height: 100%;
+            transition: width 0.3s, background 0.3s;
+        }
+
+        .footer {
+            text-align: center;
+            margin-top: 32px;
+            padding-top: 24px;
+            border-top: 1px solid #2e2e3e;
+            color: #52525b;
+            font-size: 0.85rem;
+        }
+    </style>
+</head>
+
+<body>
+    <div class="setup-container">
+        <div class="logo">
+            <h1>💀 CursedMC</h1>
+            <p>Let's get your server ready</p>
+        </div>
+
+        <div class="step-indicator">
+            <div class="step-dot active" data-step="1"></div>
+            <div class="step-dot" data-step="2"></div>
+            <div class="step-dot" data-step="3"></div>
+            <div class="step-dot" data-step="4"></div>
+        </div>
+
+        <!-- Step 1: System Check -->
+        <div class="step active" data-step="1">
+            <h2>System Check</h2>
+            <p>Checking if everything is installed correctly...</p>
+
+            <div id="checks">
+                <div class="status-check">
+                    <div class="status-icon loading" id="java-icon">⏳</div>
+                    <div class="status-text">
+                        <h4>Java Runtime</h4>
+                        <p id="java-status">Checking...</p>
+                    </div>
+                </div>
+
+                <div class="status-check">
+                    <div class="status-icon loading" id="playit-icon">⏳</div>
+                    <div class="status-text">
+                        <h4>Playit.gg (Minecraft Tunnel)</h4>
+                        <p id="playit-status">Checking...</p>
+                    </div>
+                </div>
+            </div>
+
+            <div class="info-box" style="margin-top: 20px;">
+                <h4>📋 System Requirements</h4>
+                <p><strong>Java 21</strong> (recommended) or <strong>Java 17+</strong> (minimum)<br>
+                Required for running Minecraft servers (1.18+)</p>
+            </div>
+
+            <div class="buttons">
+                <button class="btn btn-primary" onclick="nextStep()" id="step1-next">
+                    Continue →
+                </button>
+            </div>
+        </div>
+
+        <!-- Step 2: Server Config -->
+        <div class="step" data-step="2">
+            <h2>Server Configuration</h2>
+            <p>Set up your Minecraft server details</p>
+
+            <div class="form-group">
+                <label>Server Name</label>
+                <input type="text" id="server-name" placeholder="My Awesome Server" value="My Server">
+            </div>
+
+            <div class="form-row">
+                <div class="form-group">
+                    <label>Server Type</label>
+                    <select id="server-type" onchange="loadVersions()">
+                        <option value="paper" selected>Paper (Recommended)</option>
+                        <option value="vanilla">Vanilla</option>
+                        <option value="forge">Forge (Modded)</option>
+                    </select>
+                </div>
+
+                <div class="form-group">
+                    <label>Minecraft Version</label>
+                    <select id="mc-version" onchange="onMcVersionChange()">
+                        <option value="">Loading versions...</option>
+                    </select>
+                </div>
+            </div>
+            
+            <!-- Forge Version Selection (shown only for Forge) -->
+            <div class="form-group" id="forge-version-group" style="display: none;">
+                <label>Forge Version</label>
+                <select id="forge-version">
+                    <option value="">Select Minecraft version first...</option>
+                </select>
+                <small>Recommended builds are more stable, Latest builds have newest features</small>
+            </div>
+
+            <div class="form-group">
+                <label>RAM Allocation</label>
+                <select id="server-ram">
+                    <option value="2G" selected>2 GB (Recommended for small servers)</option>
+                    <option value="3G">3 GB</option>
+                    <option value="4G">4 GB (Recommended for medium servers)</option>
+                    <option value="6G">6 GB</option>
+                    <option value="7G">7 GB (Good for modpacks)</option>
+                    <option value="8G">8 GB (Recommended for large servers)</option>
+                    <option value="10G">10 GB</option>
+                    <option value="12G">12 GB</option>
+                    <option value="16G">16 GB</option>
+                </select>
+                <small>Choose based on your server's available RAM</small>
+            </div>
+
+            <div class="buttons">
+                <button class="btn btn-secondary" onclick="prevStep()">← Back</button>
+                <button class="btn btn-primary" onclick="nextStep()">Continue →</button>
+            </div>
+        </div>
+
+        <!-- Step 3: Security & Settings -->
+        <div class="step" data-step="3">
+            <h2>Security Setup</h2>
+            <p>Protect your dashboard with a secure password</p>
+
+            <div class="warning-box">
+                <h4>⚠️ Password Required</h4>
+                <p>A password is mandatory to protect your server dashboard. Choose a strong password that you'll remember.</p>
+            </div>
+
+            <div class="form-group">
+                <label class="required">Dashboard Password</label>
+                <input type="password" id="dashboard-password" placeholder="Enter a secure password (min. 6 characters)" required>
+                <div class="password-strength">
+                    <div class="password-strength-bar" id="password-strength-bar"></div>
+                </div>
+                <small id="password-hint">Password must be at least 6 characters</small>
+            </div>
+
+            <div class="form-group">
+                <label class="required">Confirm Password</label>
+                <input type="password" id="confirm-password" placeholder="Confirm your password" required>
+                <div class="error-text" id="password-error" style="display: none;"></div>
+            </div>
+
+            <div class="info-box" style="margin-top: 24px;">
+                <h4>🌐 Remote Dashboard Access (Optional)</h4>
+                <p>Enter your ngrok token to access this <strong>dashboard</strong> from anywhere in the world.<br>
+                <em>Note: This is separate from Playit.gg which handles <strong>Minecraft player connections</strong>.</em></p>
+            </div>
+
+            <div class="form-group">
+                <label>Ngrok Auth Token (optional)</label>
+                <input type="text" id="ngrok-token" placeholder="Your ngrok auth token">
+                <small>Get your free token from <a href="https://dashboard.ngrok.com/get-started/your-authtoken" target="_blank" style="color: #a78bfa;">dashboard.ngrok.com</a></small>
+            </div>
+
+            <div class="info-box" style="margin-top: 16px; background: rgba(34, 197, 94, 0.1); border-color: rgba(34, 197, 94, 0.3);">
+                <h4 style="color: #22c55e;">🎮 How Tunneling Works</h4>
+                <p style="color: #a7f3d0;">
+                    <strong>Ngrok</strong> = Dashboard access (port 8080) - manage your server remotely<br>
+                    <strong>Playit.gg</strong> = Minecraft traffic (port 25565) - players connect to your server
+                </p>
+            </div>
+
+            <div class="buttons">
+                <button class="btn btn-secondary" onclick="prevStep()">← Back</button>
+                <button class="btn btn-primary" onclick="validateAndComplete()" id="finish-btn">
+                    Finish Setup 🚀
+                </button>
+            </div>
+        </div>
+
+        <!-- Step 4: Done! -->
+        <div class="step" data-step="4">
+            <div class="success-animation">
+                <div class="success-icon">✓</div>
+                <h2>Setup Complete!</h2>
+                <p>Your Minecraft server is ready. Downloading server files...</p>
+                <p id="download-status" style="color: #a78bfa; margin-top: 16px;">Preparing...</p>
+            </div>
+
+            <div class="buttons">
+                <button class="btn btn-primary" onclick="goToDashboard()" id="go-dashboard-btn" disabled>
+                    <span class="loading-spinner" id="download-spinner"></span>
+                    Please wait...
+                </button>
+            </div>
+        </div>
+
+        <div class="footer">
+            © 2026 CursedMC. All rights reserved.
+        </div>
+    </div>
+
+    <script>
+        let currentStep = 1;
+        const totalSteps = 4;
+        let versionsCache = {};
+
+        // Check system on load
+        document.addEventListener('DOMContentLoaded', () => {
+            checkSystem();
+            loadVersions();
+            setupPasswordValidation();
+        });
+
+        async function checkSystem() {
+            try {
+                const response = await fetch('/api/setup/status');
+                const data = await response.json();
+
+                // Java check with version info
+                const javaIcon = document.getElementById('java-icon');
+                const javaStatus = document.getElementById('java-status');
+                if (data.java_installed) {
+                    if (data.java_recommended) {
+                        javaIcon.className = 'status-icon ok';
+                        javaIcon.textContent = '✓';
+                        javaStatus.textContent = data.java_message || `Java ${data.java_major} (Recommended)`;
+                    } else if (data.java_compatible) {
+                        javaIcon.className = 'status-icon warn';
+                        javaIcon.textContent = '!';
+                        javaStatus.textContent = data.java_message || `Java ${data.java_major} - Java 21 recommended`;
+                    } else {
+                        javaIcon.className = 'status-icon error';
+                        javaIcon.textContent = '✗';
+                        javaStatus.textContent = `Java ${data.java_major} - Too old! Requires Java 17+`;
+                    }
+                } else {
+                    javaIcon.className = 'status-icon error';
+                    javaIcon.textContent = '✗';
+                    javaStatus.textContent = 'Not installed - run: sudo apt install openjdk-21-jre-headless';
+                }
+
+                // Playit check
+                const playitIcon = document.getElementById('playit-icon');
+                const playitStatus = document.getElementById('playit-status');
+                if (data.playit_installed) {
+                    playitIcon.className = 'status-icon ok';
+                    playitIcon.textContent = '✓';
+                    playitStatus.textContent = data.playit_running ? 'Installed and running' : 'Installed (starts with server)';
+                } else {
+                    playitIcon.className = 'status-icon warn';
+                    playitIcon.textContent = '!';
+                    playitStatus.textContent = 'Not installed - visit playit.gg for instructions';
+                }
+            } catch (e) {
+                console.error('System check failed:', e);
+            }
+        }
+
+        async function loadVersions() {
+            const serverType = document.getElementById('server-type').value;
+            const versionSelect = document.getElementById('mc-version');
+            const forgeGroup = document.getElementById('forge-version-group');
+            
+            versionSelect.innerHTML = '<option value="">Loading versions...</option>';
+            
+            // Show/hide Forge version selector
+            if (serverType === 'forge') {
+                forgeGroup.style.display = 'block';
+            } else {
+                forgeGroup.style.display = 'none';
+            }
+            
+            // Check cache first
+            if (versionsCache[serverType]) {
+                populateVersions(versionsCache[serverType]);
+                if (serverType === 'forge') {
+                    loadForgeBuilds();
+                }
+                return;
+            }
+            
+            try {
+                const response = await fetch(`/api/versions/${serverType}`);
+                const data = await response.json();
+                
+                if (data.versions && data.versions.length > 0) {
+                    versionsCache[serverType] = data.versions;
+                    populateVersions(data.versions);
+                    if (serverType === 'forge') {
+                        loadForgeBuilds();
+                    }
+                } else {
+                    versionSelect.innerHTML = '<option value="1.21.4">1.21.4 (Default)</option>';
+                }
+            } catch (e) {
+                console.error('Failed to load versions:', e);
+                // Fallback versions
+                versionSelect.innerHTML = `
+                    <option value="1.21.4">1.21.4</option>
+                    <option value="1.21.3">1.21.3</option>
+                    <option value="1.20.4">1.20.4</option>
+                    <option value="1.20.1">1.20.1</option>
+                    <option value="1.19.4">1.19.4</option>
+                `;
+            }
+        }
+        
+        function onMcVersionChange() {
+            const serverType = document.getElementById('server-type').value;
+            if (serverType === 'forge') {
+                loadForgeBuilds();
+            }
+        }
+        
+        async function loadForgeBuilds() {
+            const mcVersion = document.getElementById('mc-version').value;
+            const forgeSelect = document.getElementById('forge-version');
+            
+            if (!mcVersion) {
+                forgeSelect.innerHTML = '<option value="">Select Minecraft version first...</option>';
+                return;
+            }
+            
+            forgeSelect.innerHTML = '<option value="">Loading Forge builds...</option>';
+            
+            try {
+                const response = await fetch(`/api/versions/forge/${mcVersion}/builds`);
+                const data = await response.json();
+                
+                if (data.builds && data.builds.length > 0) {
+                    forgeSelect.innerHTML = '';
+                    data.builds.forEach((build, index) => {
+                        const option = document.createElement('option');
+                        option.value = build.forge_version;
+                        option.textContent = build.display;
+                        if (index === 0) option.selected = true;
+                        forgeSelect.appendChild(option);
+                    });
+                } else {
+                    forgeSelect.innerHTML = '<option value="">No Forge builds for this version</option>';
+                }
+            } catch (e) {
+                console.error('Failed to load Forge builds:', e);
+                forgeSelect.innerHTML = '<option value="">Failed to load builds</option>';
+            }
+        }
+
+        function populateVersions(versions) {
+            const versionSelect = document.getElementById('mc-version');
+            versionSelect.innerHTML = '';
+            
+            versions.forEach((v, index) => {
+                const option = document.createElement('option');
+                option.value = v.id;
+                option.textContent = v.id;
+                if (index === 0) option.selected = true;
+                versionSelect.appendChild(option);
+            });
+        }
+
+        function setupPasswordValidation() {
+            const passwordInput = document.getElementById('dashboard-password');
+            const confirmInput = document.getElementById('confirm-password');
+            const strengthBar = document.getElementById('password-strength-bar');
+            
+            passwordInput.addEventListener('input', () => {
+                const password = passwordInput.value;
+                const strength = calculatePasswordStrength(password);
+                
+                strengthBar.style.width = strength.percent + '%';
+                strengthBar.style.background = strength.color;
+            });
+        }
+
+        function calculatePasswordStrength(password) {
+            let score = 0;
+            
+            if (password.length >= 6) score += 25;
+            if (password.length >= 10) score += 25;
+            if (/[A-Z]/.test(password)) score += 15;
+            if (/[a-z]/.test(password)) score += 15;
+            if (/[0-9]/.test(password)) score += 10;
+            if (/[^A-Za-z0-9]/.test(password)) score += 10;
+            
+            let color = '#ef4444'; // Red
+            if (score > 30) color = '#f59e0b'; // Orange
+            if (score > 60) color = '#22c55e'; // Green
+            
+            return { percent: Math.min(score, 100), color };
+        }
+
+        function updateStepIndicator() {
+            document.querySelectorAll('.step-dot').forEach(dot => {
+                const step = parseInt(dot.dataset.step);
+                dot.classList.remove('active', 'done');
+                if (step === currentStep) {
+                    dot.classList.add('active');
+                } else if (step < currentStep) {
+                    dot.classList.add('done');
+                }
+            });
+
+            document.querySelectorAll('.step').forEach(step => {
+                const stepNum = parseInt(step.dataset.step);
+                step.classList.remove('active');
+                if (stepNum === currentStep) {
+                    step.classList.add('active');
+                }
+            });
+        }
+
+        function nextStep() {
+            if (currentStep < totalSteps) {
+                currentStep++;
+                updateStepIndicator();
+            }
+        }
+
+        function prevStep() {
+            if (currentStep > 1) {
+                currentStep--;
+                updateStepIndicator();
+            }
+        }
+
+        function validateAndComplete() {
+            const password = document.getElementById('dashboard-password').value;
+            const confirmPassword = document.getElementById('confirm-password').value;
+            const passwordError = document.getElementById('password-error');
+            
+            // Reset error state
+            passwordError.style.display = 'none';
+            document.getElementById('dashboard-password').classList.remove('error');
+            document.getElementById('confirm-password').classList.remove('error');
+            
+            // Validate password
+            if (!password) {
+                passwordError.textContent = 'Password is required';
+                passwordError.style.display = 'block';
+                document.getElementById('dashboard-password').classList.add('error');
+                return;
+            }
+            
+            if (password.length < 6) {
+                passwordError.textContent = 'Password must be at least 6 characters';
+                passwordError.style.display = 'block';
+                document.getElementById('dashboard-password').classList.add('error');
+                return;
+            }
+            
+            if (password !== confirmPassword) {
+                passwordError.textContent = 'Passwords do not match';
+                passwordError.style.display = 'block';
+                document.getElementById('confirm-password').classList.add('error');
+                return;
+            }
+            
+            // All validation passed, complete setup
+            completeSetup();
+        }
+
+        async function completeSetup() {
+            const btn = document.getElementById('finish-btn');
+            btn.disabled = true;
+            btn.innerHTML = '<span class="loading-spinner"></span> Saving...';
+
+            const serverType = document.getElementById('server-type').value;
+            const data = {
+                server_name: document.getElementById('server-name').value,
+                server_type: serverType,
+                version: document.getElementById('mc-version').value,
+                ram: document.getElementById('server-ram').value,
+                ngrok_token: document.getElementById('ngrok-token').value,
+                password: document.getElementById('dashboard-password').value
+            };
+            
+            // Add Forge version if applicable
+            if (serverType === 'forge') {
+                data.forge_version = document.getElementById('forge-version').value;
+            }
+
+            try {
+                const response = await fetch('/api/setup/complete', {
+                    method: 'POST',
+                    headers: { 'Content-Type': 'application/json' },
+                    body: JSON.stringify(data)
+                });
+
+                const result = await response.json();
+                
+                if (response.ok && result.success) {
+                    currentStep = 4;
+                    updateStepIndicator();
+                    downloadServerJar();
+                } else {
+                    alert(result.error || 'Setup failed. Please try again.');
+                    btn.disabled = false;
+                    btn.textContent = 'Finish Setup 🚀';
+                }
+            } catch (e) {
+                alert('Setup failed: ' + e.message);
+                btn.disabled = false;
+                btn.textContent = 'Finish Setup 🚀';
+            }
+        }
+
+        async function downloadServerJar() {
+            const status = document.getElementById('download-status');
+            const btn = document.getElementById('go-dashboard-btn');
+            const spinner = document.getElementById('download-spinner');
+            
+            const serverType = document.getElementById('server-type').value;
+            
+            // For Forge, show longer wait message
+            if (serverType === 'forge') {
+                status.textContent = 'Installing Forge server (this may take a few minutes)...';
+            } else {
+                status.textContent = 'Downloading server JAR...';
+            }
+
+            try {
+                const body = {};
+                if (serverType === 'forge') {
+                    body.forge_version = document.getElementById('forge-version').value;
+                }
+                
+                const response = await fetch('/api/download-jar', { 
+                    method: 'POST',
+                    headers: { 'Content-Type': 'application/json' },
+                    body: JSON.stringify(body)
+                });
+                const data = await response.json();
+
+                if (data.success) {
+                    status.textContent = '✓ ' + data.message;
+                    status.style.color = '#22c55e';
+                } else {
+                    status.textContent = '⚠ ' + data.message;
+                    status.style.color = '#fbbf24';
+                }
+            } catch (e) {
+                status.textContent = '⚠ Download failed, you can try again from settings';
+                status.style.color = '#fbbf24';
+            }
+
+            // Enable dashboard button
+            spinner.style.display = 'none';
+            btn.disabled = false;
+            btn.textContent = 'Go to Dashboard →';
+        }
+
+        function goToDashboard() {
+            window.location.href = '/dashboard';
+        }
+    </script>
+</body>
+
+</html>
