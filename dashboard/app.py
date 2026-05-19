@@ -17,6 +17,7 @@ import secrets
 import re
 import json
 import shutil
+import math
 from pathlib import Path
 from datetime import datetime, timedelta
 from functools import wraps
@@ -71,6 +72,87 @@ server_stdin = None
 auto_restart_enabled = False
 performance_history = []
 
+MIN_RAM_GB = 4
+STATUS_EMIT_INTERVAL_SEC = 3
+PERF_SAMPLE_INTERVAL_SEC = 15
+PLAYIT_STATUS_CACHE_SEC = 15
+PERF_MAX_ROWS = 1000
+PERF_CLEANUP_INTERVAL_SEC = 300
+LOG_ROTATE_BYTES = 50 * 1024 * 1024
+LOG_ROTATE_KEEP = 3
+
+_last_perf_cleanup = 0
+
+
+def parse_ram_to_gb(ram_value):
+    """Parse a RAM string like 4G/4096M into GB (float)."""
+    try:
+        ram_str = str(ram_value).strip().upper()
+        if ram_str.endswith('G'):
+            return float(ram_str[:-1])
+        if ram_str.endswith('M'):
+            return float(ram_str[:-1]) / 1024
+        return float(ram_str)
+    except Exception:
+        return float(MIN_RAM_GB)
+
+
+def normalize_ram_setting(ram_value):
+    """Normalize RAM to an integer GB string and clamp to MIN_RAM_GB."""
+    ram_gb = parse_ram_to_gb(ram_value)
+    if not ram_gb or ram_gb < MIN_RAM_GB:
+        ram_gb = float(MIN_RAM_GB)
+    ram_gb = int(math.ceil(ram_gb))
+    return ram_gb, f"{ram_gb}G"
+
+
+def cap_max_ram_to_system(requested_gb):
+    """Cap max RAM so the OS and dashboard keep headroom."""
+    try:
+        total_bytes = psutil.virtual_memory().total
+        total_gb = max(1, int(math.floor(total_bytes / (1024 ** 3))))
+        reserve_gb = max(2, int(math.ceil(total_gb * 0.25)))
+        if total_gb - reserve_gb < MIN_RAM_GB:
+            reserve_gb = max(0, total_gb - MIN_RAM_GB)
+        max_allowed_gb = max(MIN_RAM_GB, total_gb - reserve_gb)
+        capped_gb = min(int(requested_gb), int(max_allowed_gb))
+        return capped_gb, int(max_allowed_gb), int(total_gb), int(reserve_gb)
+    except Exception:
+        return int(requested_gb), int(requested_gb), 0, 0
+
+
+def get_effective_max_ram(ram_value):
+    """Return requested and capped RAM values for safe runtime use."""
+    requested_gb, _ = normalize_ram_setting(ram_value)
+    capped_gb, max_allowed_gb, total_gb, reserve_gb = cap_max_ram_to_system(requested_gb)
+    return requested_gb, capped_gb, f"{capped_gb}G", max_allowed_gb, total_gb, reserve_gb
+
+
+def get_g1_region_size(ram_gb):
+    """Choose a G1 region size based on heap size."""
+    return "16M" if ram_gb >= 12 else "8M"
+
+
+def rotate_log_file():
+    """Rotate server.log when it gets large to reduce I/O pressure."""
+    try:
+        if not LOG_FILE.exists() or LOG_FILE.stat().st_size < LOG_ROTATE_BYTES:
+            return
+
+        oldest = Path(f"{LOG_FILE}.{LOG_ROTATE_KEEP}")
+        if oldest.exists():
+            oldest.unlink()
+
+        for i in range(LOG_ROTATE_KEEP - 1, 0, -1):
+            src = Path(f"{LOG_FILE}.{i}")
+            dst = Path(f"{LOG_FILE}.{i + 1}")
+            if src.exists():
+                src.replace(dst)
+
+        LOG_FILE.replace(Path(f"{LOG_FILE}.1"))
+    except Exception:
+        pass
+
 
 # ============ DATABASE ============
 
@@ -120,7 +202,7 @@ def init_db():
         'server_name': 'My Server',
         'server_type': 'paper',
         'server_version': '1.21.4',
-        'server_ram': '2G',
+        'server_ram': '4G',
         'server_port': '25565',
         'playit_address': '',
         'ngrok_token': '',
@@ -131,6 +213,16 @@ def init_db():
     
     for key, value in defaults.items():
         c.execute('INSERT OR IGNORE INTO settings (key, value) VALUES (?, ?)', (key, value))
+
+    # Ensure server RAM setting respects the minimum
+    try:
+        c.execute('SELECT value FROM settings WHERE key = "server_ram"')
+        row = c.fetchone()
+        if row and row[0]:
+            _, normalized_ram = normalize_ram_setting(row[0])
+            c.execute('UPDATE settings SET value = ? WHERE key = "server_ram"', (normalized_ram,))
+    except Exception:
+        pass
     
     conn.commit()
     conn.close()
@@ -204,12 +296,17 @@ def get_history(limit=50):
 
 def save_performance_data(cpu, ram):
     """Save performance data point (thread-safe)"""
+    global _last_perf_cleanup
     try:
         conn = sqlite3.connect(DB_FILE, check_same_thread=False, timeout=10)
         c = conn.cursor()
         c.execute('INSERT INTO performance_history (cpu, ram) VALUES (?, ?)', (cpu, ram))
-        # Keep only last 1000 records
-        c.execute('DELETE FROM performance_history WHERE id NOT IN (SELECT id FROM performance_history ORDER BY id DESC LIMIT 1000)')
+        now = time.time()
+        if now - _last_perf_cleanup >= PERF_CLEANUP_INTERVAL_SEC:
+            c.execute(
+                f'DELETE FROM performance_history WHERE id NOT IN (SELECT id FROM performance_history ORDER BY id DESC LIMIT {PERF_MAX_ROWS})'
+            )
+            _last_perf_cleanup = now
         conn.commit()
         conn.close()
     except Exception as e:
@@ -862,8 +959,7 @@ def get_optimized_jvm_flags(ram, server_type='paper'):
     - https://aikar.co/2018/07/02/tuning-the-jvm-g1gc-garbage-collector-flags-for-minecraft/
     
     Key findings:
-    - For HIGH memory (10GB+): Xms = Xmx is optimal (lets G1GC work efficiently)
-    - For LOW memory (<8GB): Xms < Xmx to leave room for OS
+    - Minimum heap (Xms) is fixed at 4G; maximum heap (Xmx) comes from settings
     - Modded servers need more metaspace and code cache
     - G1GC settings need tuning for Minecraft's high allocation rate
     
@@ -874,31 +970,29 @@ def get_optimized_jvm_flags(ram, server_type='paper'):
     Returns:
         list: Optimized JVM arguments
     """
-    # Parse RAM to get numeric value in GB
-    ram_value = ram.upper().replace('G', '').replace('M', '')
-    try:
-        ram_gb = int(ram_value) if 'G' in ram.upper() else int(ram_value) / 1024
-    except:
-        ram_gb = 4  # Default
-    
-    # Memory strategy based on research:
-    # - 10GB+: Xms = Xmx (Aikar recommendation for large servers)
-    # - <10GB: Xms = 50-75% of Xmx (leave room for OS + metaspace)
-    if ram_gb >= 10:
-        min_ram = ram  # Same as max for large allocations
-    elif ram_gb >= 6:
-        min_ram_gb = max(2, int(ram_gb * 0.75))  # 75% for medium
-        min_ram = f"{min_ram_gb}G"
-    else:
-        min_ram_gb = max(1, int(ram_gb * 0.5))   # 50% for small
-        min_ram = f"{min_ram_gb}G"
-    
-    max_ram = ram
+    # Parse RAM to get numeric value in GB, clamp to minimum
+    ram_gb, max_ram = normalize_ram_setting(ram)
+    min_ram = f"{MIN_RAM_GB}G"
+    g1_region_size = get_g1_region_size(ram_gb)
     
     if server_type == 'forge':
         # FORGE/MODDED SERVER FLAGS
         # Based on brucethemoose benchmarks + Forge-specific needs
         # Mods require: more metaspace, larger code cache, string deduplication
+        metaspace_size = '256M'
+        max_metaspace = '512M'
+        code_cache = '400M'
+        non_nmethod_cache = '12M'
+        profiled_cache = '194M'
+        non_profiled_cache = '194M'
+        if ram_gb <= 8:
+            metaspace_size = '128M'
+            max_metaspace = '256M'
+            code_cache = '240M'
+            non_nmethod_cache = '8M'
+            profiled_cache = '116M'
+            non_profiled_cache = '116M'
+
         flags = [
             f'-Xms{min_ram}',
             f'-Xmx{max_ram}',
@@ -914,17 +1008,17 @@ def get_optimized_jvm_flags(ram, server_type='paper'):
             '-XX:+AlwaysActAsServerClassMachine',
             
             # CRITICAL FOR MODS - Metaspace (mods load MANY classes)
-            '-XX:MetaspaceSize=256M',
-            '-XX:MaxMetaspaceSize=512M',
+            f'-XX:MetaspaceSize={metaspace_size}',
+            f'-XX:MaxMetaspaceSize={max_metaspace}',
             
             # Code cache for mod class compilation
-            '-XX:ReservedCodeCacheSize=400M',
-            '-XX:NonNMethodCodeHeapSize=12M',
-            '-XX:ProfiledCodeHeapSize=194M',
-            '-XX:NonProfiledCodeHeapSize=194M',
+            f'-XX:ReservedCodeCacheSize={code_cache}',
+            f'-XX:NonNMethodCodeHeapSize={non_nmethod_cache}',
+            f'-XX:ProfiledCodeHeapSize={profiled_cache}',
+            f'-XX:NonProfiledCodeHeapSize={non_profiled_cache}',
             
             # G1GC tuning for modded (from brucethemoose)
-            '-XX:G1HeapRegionSize=16M',  # Prevent humongous allocations
+            f'-XX:G1HeapRegionSize={g1_region_size}',
             '-XX:G1ReservePercent=20',
             '-XX:G1HeapWastePercent=5',
             '-XX:G1MixedGCCountTarget=4',
@@ -1001,7 +1095,7 @@ def get_optimized_jvm_flags(ram, server_type='paper'):
             flags.extend([
                 '-XX:G1NewSizePercent=40',
                 '-XX:G1MaxNewSizePercent=50',
-                '-XX:G1HeapRegionSize=16M',
+                f'-XX:G1HeapRegionSize={g1_region_size}',
                 '-XX:G1ReservePercent=15',
                 '-XX:InitiatingHeapOccupancyPercent=20',
             ])
@@ -1009,7 +1103,7 @@ def get_optimized_jvm_flags(ram, server_type='paper'):
             flags.extend([
                 '-XX:G1NewSizePercent=30',
                 '-XX:G1MaxNewSizePercent=40',
-                '-XX:G1HeapRegionSize=8M',
+                f'-XX:G1HeapRegionSize={g1_region_size}',
                 '-XX:G1ReservePercent=20',
                 '-XX:InitiatingHeapOccupancyPercent=15',
             ])
@@ -1034,14 +1128,10 @@ def get_forge_start_command(ram, use_optimized=True):
     if use_optimized:
         jvm_flags = get_optimized_jvm_flags(ram, server_type='forge')
     else:
-        # Even basic flags need proper min/max split
-        ram_value = ram.upper().replace('G', '').replace('M', '')
-        try:
-            ram_gb = int(ram_value) if 'G' in ram.upper() else int(ram_value) / 1024
-        except:
-            ram_gb = 4
-        min_ram = f"{max(1, int(ram_gb * 0.25))}G"
-        jvm_flags = [f'-Xms{min_ram}', f'-Xmx{ram}']
+        # Basic flags: fixed minimum and configured maximum
+        _, max_ram = normalize_ram_setting(ram)
+        min_ram = f"{MIN_RAM_GB}G"
+        jvm_flags = [f'-Xms{min_ram}', f'-Xmx{max_ram}']
     
     # First, try to find and parse unix_args.txt for the proper Java arguments
     for args_file in SERVER_DIR.glob("libraries/net/minecraftforge/forge/*/unix_args.txt"):
@@ -1146,7 +1236,10 @@ def start_minecraft():
     if is_server_running():
         return False, "Server is already running!"
     
-    ram = get_setting('server_ram', '4G')
+    ram_setting = get_setting('server_ram', '4G')
+    requested_gb, capped_gb, ram, _, total_gb, reserve_gb = get_effective_max_ram(ram_setting)
+    if capped_gb < requested_gb:
+        log_action(f'RAM capped to {ram} (system {total_gb}G, reserved {reserve_gb}G)')
     server_type = get_setting('server_type', 'paper')
     jar_path = SERVER_DIR / "server.jar"
     
@@ -1192,17 +1285,12 @@ def start_minecraft():
             cmd = ['java'] + jvm_flags + ['-jar', 'server.jar', 'nogui']
             print(f"[CursedMC] Starting {server_type} with optimized flags")
         else:
-            # Even basic mode uses proper min/max split
-            ram_value = ram.upper().replace('G', '').replace('M', '')
-            try:
-                ram_gb = int(ram_value) if 'G' in ram.upper() else int(ram_value) / 1024
-            except:
-                ram_gb = 4
-            min_ram = f"{max(1, int(ram_gb * 0.25))}G"
+            min_ram = f"{MIN_RAM_GB}G"
             cmd = ['java', f'-Xms{min_ram}', f'-Xmx{ram}', '-jar', 'server.jar', 'nogui']
     
     LOG_FILE.parent.mkdir(parents=True, exist_ok=True)
     
+    rotate_log_file()
     log_handle = open(LOG_FILE, 'a')
     
     # Always run without shell to maintain stdin pipe
@@ -1915,7 +2003,8 @@ def api_complete_setup():
     set_setting('server_name', data.get('server_name', 'My Server'))
     set_setting('server_type', data.get('server_type', 'paper'))
     set_setting('server_version', data.get('version', '1.21.4'))
-    set_setting('server_ram', data.get('ram', '2G'))
+    _, normalized_ram = normalize_ram_setting(data.get('ram', '4G'))
+    set_setting('server_ram', normalized_ram)
     set_setting('playit_address', data.get('playit_address', ''))
     set_setting('ngrok_token', data.get('ngrok_token', ''))
     
@@ -2138,7 +2227,8 @@ def api_settings():
         if 'server_version' in data:
             set_setting('server_version', data['server_version'])
         if 'server_ram' in data:
-            set_setting('server_ram', data['server_ram'])
+            _, normalized_ram = normalize_ram_setting(data['server_ram'])
+            set_setting('server_ram', normalized_ram)
         if 'playit_address' in data:
             set_setting('playit_address', data['playit_address'])
         if 'ngrok_token' in data and data['ngrok_token'] != '***configured***':
@@ -2525,12 +2615,19 @@ def handle_connect():
 
 def background_status_updates():
     """Send status updates via WebSocket"""
+    last_perf_save = 0
+    last_playit_check = 0
+    playit_running = False
     while True:
         try:
+            now = time.time()
             stats = get_system_stats()
+            if now - last_playit_check >= PLAYIT_STATUS_CACHE_SEC:
+                playit_running = check_playit_status()
+                last_playit_check = now
             status = {
                 "server_online": is_server_running(),
-                "playit_running": check_playit_status(),
+                "playit_running": playit_running,
                 "system": stats,
                 "ngrok": {
                     "url": ngrok_url,
@@ -2540,10 +2637,12 @@ def background_status_updates():
             }
             socketio.emit('status_update', status)
             
-            save_performance_data(stats['cpu'], stats['ram_percent'])
+            if now - last_perf_save >= PERF_SAMPLE_INTERVAL_SEC:
+                save_performance_data(stats['cpu'], stats['ram_percent'])
+                last_perf_save = now
         except:
             pass
-        time.sleep(3)
+        time.sleep(STATUS_EMIT_INTERVAL_SEC)
 
 
 # ============ MAIN ============
